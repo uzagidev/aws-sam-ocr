@@ -1,0 +1,129 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: SAM app that uses Textract APIs to extract text and structured data from
+  documents in S3 and stores the results in DynamoDB.
+Resources:
+  DetectTextInImage:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/app.lambda_handler
+      Runtime: python3.10
+      CodeUri: s3://example-buket-name/hehe
+      Description: Uses Textract APIs to extract text and structured data from documents
+        in S3 and stores the results in DynamoDB.
+      MemorySize: 512
+      Timeout: 60
+      Environment:
+        Variables:
+          TABLE_NAME:
+            Ref: ResultsTable
+          BUCKET_NAME: ''
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - s3:GetObject
+          Resource: arn:aws:s3:::*
+        - Effect: Allow
+          Action:
+          - textract:AnalyzeDocument
+          - textract:DetectDocumentText
+          Resource: '*'
+        - Effect: Allow
+          Action:
+          - dynamodb:GetItem
+          - dynamodb:PutItem
+          - dynamodb:Scan
+          - dynamodb:UpdateItem
+          Resource:
+            Fn::Join:
+            - ''
+            - - 'arn:aws:dynamodb:'
+              - Ref: AWS::Region
+              - ':'
+              - Ref: AWS::AccountId
+              - :table/
+              - Ref: ResultsTable
+        - Effect: Allow
+          Action:
+          - translate:TranslateText
+          - comprehend:DetectDominantLanguage
+          Resource: '*'
+      Events:
+        BucketEvent1:
+          Type: S3
+          Properties:
+            Bucket:
+              Ref: SourceImageBucket
+            Events:
+            - s3:ObjectCreated:*
+    Metadata:
+      SamResourceId: DetectTextInImage
+  SourceImageBucket:
+    Type: AWS::S3::Bucket
+    Metadata:
+      SamResourceId: SourceImageBucket
+  ResultsTable:
+    Type: AWS::Serverless::SimpleTable
+    Metadata:
+      SamResourceId: ResultsTable
+  UploadApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/app.upload_handler
+      Runtime: python3.10
+      Environment:
+        Variables:
+          TABLE_NAME:
+            Ref: ResultsTable
+          BUCKET_NAME:
+            Ref: SourceImageBucket
+      Events:
+        UploadApi:
+          Type: HttpApi
+          Properties:
+            Path: /upload
+            Method: POST
+      Policies:
+      - S3WritePolicy:
+          BucketName:
+            Ref: SourceImageBucket
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: ResultsTable
+      CodeUri: s3://example-buket-name/hehe
+    Metadata:
+      SamResourceId: UploadApiFunction
+  ResultsApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/app.results_handler
+      Runtime: python3.10
+      Environment:
+        Variables:
+          TABLE_NAME:
+            Ref: ResultsTable
+          BUCKET_NAME:
+            Ref: SourceImageBucket
+      Events:
+        ResultsApi:
+          Type: HttpApi
+          Properties:
+            Path: /results
+            Method: GET
+        ResultsApiById:
+          Type: HttpApi
+          Properties:
+            Path: /results/{imageId}
+            Method: GET
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: ResultsTable
+      - S3ReadPolicy:
+          BucketName:
+            Ref: SourceImageBucket
+      CodeUri: s3://example-buket-name/hehe
+    Metadata:
+      SamResourceId: ResultsApiFunction
